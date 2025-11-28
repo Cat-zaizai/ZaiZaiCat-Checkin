@@ -62,14 +62,14 @@ def process_account(account_config):
     result = api.sign_in()
 
     # 解析结果
-    if result.get('success'):
+    if result.get('code') == "S0A00000":
         result_info['success'] = True
         result_info['message'] = result.get('message', '签到成功')
         result_info['response'] = result
         print("✅ 签到成功")
     else:
-        result_info['error'] = result.get('error', '签到失败')
-        result_info['response'] = result
+        result_info['error'] = result.get('msg', '签到失败')
+        result_info['response'] = result.get('msg')
         print(f"❌ 签到失败: {result_info['error']}")
 
     print("响应:")
