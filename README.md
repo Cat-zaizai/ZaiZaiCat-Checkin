@@ -91,7 +91,7 @@ ql repo https://github.com/Cat-zaizai/ZaiZaiCat-Checkin.git "main.py|sign_in.py"
 #### 通用环境变量与配置
 
 - 入口：`脚本管理 -> ZaiZaiCat-Checkin -> config`
-- `token.json`：项目所需账号配置文件
+- 创建`token.json`文件：项目所需账号配置文件,可参考 `config/token_example.json` 示例进行编辑
 - `notification.json`：统一推送配置文件
 
 #### 依赖下载安装
@@ -124,7 +124,7 @@ ql repo https://github.com/Cat-zaizai/ZaiZaiCat-Checkin.git "main.py|sign_in.py"
    # 顺丰脚本所需的依赖
    pip install PyExecJS
    ```
-3. 配置账号信息：编辑 `config/token.json` 为各平台添加账号配置。
+3. 配置账号信息：创建 `config/token.json`文件,参考[template_token.json](config/template_token.json) 为各平台添加账号配置。
 
 4. 添加定时任务
 
