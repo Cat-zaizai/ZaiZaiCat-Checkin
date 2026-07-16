@@ -45,7 +45,22 @@ from notification import send_notification, NotificationSound
 
 
 class DailyBenefitsAPI:
-    """WPS 天天领福利活动接口封装"""
+    """WPS 天天领福利活动接口封装
+
+    使用说明：
+    - 默认情况下，脚本会自动从市场活动接口中发现"福利中心"入口。
+    - 如果网站上没有展示活动入口，可以手动填入活动页面 URL 来绕过自动发现。
+      请将下方 MANUAL_ACTIVITY_PAGE_URL 设置为完整的活动页面地址，例如：
+      MANUAL_ACTIVITY_PAGE_URL = "https://personal-act.wps.cn/rubik2/portal/123/456"
+      留空则继续使用原有的自动发现逻辑。
+    """
+
+    # ===== 用户可配置：手动指定活动页面 URL =====
+    # 如果自动发现活动入口失败（例如网站 bug 导致入口不展示），
+    # 可以在这里填入一个已知的活动页面 URL，脚本将直接使用该 URL。
+    # 留空 "" 则维持原有的自动发现逻辑。
+    MANUAL_ACTIVITY_PAGE_URL: str = ""
+    # =============================================
 
     MARKET_ACTIVITY_URL = "https://tiance.wps.cn/dce/exec/api/market/activity?rmsp=pv_vip_site"
     PAGE_INFO_URL = "https://personal-act.wps.cn/activity-rubik/activity/page_info"
@@ -227,7 +242,20 @@ class DailyBenefitsAPI:
         }
 
     def get_benefit_portal(self) -> Dict[str, Any]:
-        """从市场活动数据中提取福利中心入口"""
+        """从市场活动数据中提取福利中心入口
+
+        如果 MANUAL_ACTIVITY_PAGE_URL 已配置，则直接解析该 URL，跳过自动发现。
+        """
+        # 如果用户手动指定了活动页面 URL，直接解析并返回
+        if self.MANUAL_ACTIVITY_PAGE_URL:
+            self.logger.info("使用手动指定的活动页面 URL: %s", self.MANUAL_ACTIVITY_PAGE_URL)
+            portal_info = self._parse_portal_link(self.MANUAL_ACTIVITY_PAGE_URL)
+            if portal_info["success"]:
+                portal_info["title"] = "手动指定"
+                portal_info["pic"] = ""
+            return portal_info
+
+        # 原有的自动发现逻辑
         market_result = self.get_market_activity()
         if not market_result["success"]:
             return market_result
@@ -1297,6 +1325,15 @@ class DailyBenefitsTasks:
 
         if remain_times <= 0:
             message = "天天抽奖无剩余次数"
+            # 即使无抽奖次数，也要检查第7天奖励领取状态
+            reward_claim_status = self._process_daily_lottery_reward_claim(
+                api=api,
+                portal_result=portal_result,
+                account_name=account_name,
+                result=result
+            )
+            if reward_claim_status["message"]:
+                message = f"{message}，{reward_claim_status['message']}"
             result["daily_lottery"]["message"] = message
             return {
                 "success": True,
@@ -1458,6 +1495,15 @@ class DailyBenefitsTasks:
             }
 
         message = receive_result.get("error", "第7天奖励领取失败")
+        # "big reward already received" 表示奖励在前面步骤中已领取，应视为成功
+        if "big reward already received" in message.lower():
+            reward_claim["success"] = True
+            reward_claim["message"] = "第7天奖励已领取"
+            return {
+                "success": True,
+                "message": "第7天奖励已领取",
+                "claimed": True
+            }
         if (
             receive_result.get("error_type") == "token_expired"
             or self._is_auth_expired_message(message)
@@ -1561,6 +1607,14 @@ class DailyBenefitsTasks:
             }
 
         message = receive_result.get("error", "第7天奖励领取失败")
+        # "big reward already received" 表示奖励在前面步骤中已领取，应视为成功
+        if "big reward already received" in message.lower():
+            reward_claim["success"] = True
+            reward_claim["message"] = "第7天奖励已领取"
+            return {
+                "success": True,
+                "message": "第7天奖励已领取"
+            }
         if (
             receive_result.get("error_type") == "token_expired"
             or self._is_auth_expired_message(message)
@@ -1687,6 +1741,8 @@ class DailyBenefitsTasks:
                     result["message"] = "Token已过期，请重新登录"
                 log_task_result(account_logger, "🏆 第7天奖励", f"❌ {result['message']}")
                 return result
+
+            log_task_result(account_logger, "🏆 第7天奖励", f"✅ {pending_reward_status['message']}")
 
             if pending_reward_status["claimed"]:
                 refreshed_page_info_result = api.get_page_info(portal_result)
