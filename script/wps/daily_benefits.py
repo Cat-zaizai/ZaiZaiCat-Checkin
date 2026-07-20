@@ -49,18 +49,11 @@ class DailyBenefitsAPI:
 
     使用说明：
     - 默认情况下，脚本会自动从市场活动接口中发现"福利中心"入口。
-    - 如果网站上没有展示活动入口，可以手动填入活动页面 URL 来绕过自动发现。
-      请将下方 MANUAL_ACTIVITY_PAGE_URL 设置为完整的活动页面地址，例如：
-      MANUAL_ACTIVITY_PAGE_URL = "https://personal-act.wps.cn/rubik2/portal/123/456"
-      留空则继续使用原有的自动发现逻辑。
+    - 如果网站上没有展示活动入口，可以在 token.json 中为对应账号配置
+      manual_activity_page_url 字段来绕过自动发现，例如：
+      "manual_activity_page_url": "https://personal-act.wps.cn/rubik2/portal/123/456"
+      留空或不配置则继续使用原有的自动发现逻辑。
     """
-
-    # ===== 用户可配置：手动指定活动页面 URL =====
-    # 如果自动发现活动入口失败（例如网站 bug 导致入口不展示），
-    # 可以在这里填入一个已知的活动页面 URL，脚本将直接使用该 URL。
-    # 留空 "" 则维持原有的自动发现逻辑。
-    MANUAL_ACTIVITY_PAGE_URL: str = ""
-    # =============================================
 
     MARKET_ACTIVITY_URL = "https://tiance.wps.cn/dce/exec/api/market/activity?rmsp=pv_vip_site"
     PAGE_INFO_URL = "https://personal-act.wps.cn/activity-rubik/activity/page_info"
@@ -77,8 +70,14 @@ class DailyBenefitsAPI:
 
     TARGET_TITLES = {"福利中心", "天天领福利"}
 
-    def __init__(self, cookies: str, user_agent: Optional[str] = None):
+    def __init__(
+        self,
+        cookies: str,
+        user_agent: Optional[str] = None,
+        manual_activity_page_url: Optional[str] = None
+    ):
         self.cookies = self._parse_cookies(cookies)
+        self.manual_activity_page_url = manual_activity_page_url
         self.user_agent = user_agent or (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
@@ -244,12 +243,12 @@ class DailyBenefitsAPI:
     def get_benefit_portal(self) -> Dict[str, Any]:
         """从市场活动数据中提取福利中心入口
 
-        如果 MANUAL_ACTIVITY_PAGE_URL 已配置，则直接解析该 URL，跳过自动发现。
+        如果 manual_activity_page_url 已配置，则直接解析该 URL，跳过自动发现。
         """
         # 如果用户手动指定了活动页面 URL，直接解析并返回
-        if self.MANUAL_ACTIVITY_PAGE_URL:
-            self.logger.info("使用手动指定的活动页面 URL: %s", self.MANUAL_ACTIVITY_PAGE_URL)
-            portal_info = self._parse_portal_link(self.MANUAL_ACTIVITY_PAGE_URL)
+        if self.manual_activity_page_url:
+            self.logger.info("使用手动指定的活动页面 URL: %s", self.manual_activity_page_url)
+            portal_info = self._parse_portal_link(self.manual_activity_page_url)
             if portal_info["success"]:
                 portal_info["title"] = "手动指定"
                 portal_info["pic"] = ""
@@ -1682,12 +1681,13 @@ class DailyBenefitsTasks:
 
         cookies = account_info.get("cookies", "")
         user_agent = account_info.get("user_agent")
+        manual_activity_page_url = account_info.get("manual_activity_page_url")
         if not cookies:
             result["message"] = "账号配置中缺少 cookies"
             account_logger.error(result["message"])
             return result
 
-        api = DailyBenefitsAPI(cookies=cookies, user_agent=user_agent)
+        api = DailyBenefitsAPI(cookies=cookies, user_agent=user_agent, manual_activity_page_url=manual_activity_page_url)
 
         portal_result = api.get_benefit_portal()
         if not portal_result["success"]:

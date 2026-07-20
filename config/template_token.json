@@ -176,7 +176,15 @@
         "account_name": "大号",
         "user_id": 123456789,
         "cookies": "COOKIE_MASKED",
-        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/"
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/",
+        "manual_activity_page_url": "https://personal-act.wps.cn/rubik2/portal/123/456"
+      },
+      {
+        "account_name": "小号",
+        "user_id": 987654321,
+        "cookies": "COOKIE_MASKED",
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/",
+        "manual_activity_page_url": "https://personal-act.wps.cn/rubik2/portal/123/456"
       }
     ]
   }
