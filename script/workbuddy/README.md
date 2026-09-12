@@ -8,7 +8,6 @@ WorkBuddy（腾讯 CodeBuddy）每日签到脚本，支持多账号、令牌自�
 
 - 🔐 **多账号支持** - 依次处理配置中的所有账号，账号间随机延迟 5-10 秒
 - 📥 **账号导入** - 一键导入官方 WorkBuddy 客户端当前登录账号，无需手动抓包；也支持从 cockpit-tools 批量导入
-- 🔄 **自动同步** - 每次签到前自动从本机官方客户端 / cockpit-tools 拉取最新令牌
 - 🔁 **令牌自动续期** - `access_token` 过期时用 `refresh_token` 自动换新并写回配置
 - 🎯 **智能判重** - 先查签到状态，今日已签到则跳过，不重复请求
 - ⏱️ **随机错峰** - 启动后在时间窗口内随机延迟，避开请求高峰
@@ -38,7 +37,6 @@ pip install requests pycryptodome
     "accounts": [
       {
         "account_name": "主号",
-        "email": "you@example.com",
         "access_token": "你的访问令牌",
         "refresh_token": "你的刷新令牌",
         "uid": "你的用户ID",
@@ -55,7 +53,6 @@ pip install requests pycryptodome
 | 字段 | 必填 | 说明 |
 |------|------|------|
 | `account_name` | 否 | 账号备注名，用于日志和推送显示 |
-| `email` | 否 | 账号邮箱，用于导入时去重 |
 | `access_token` | **是** | 访问令牌，对应请求头 `Authorization: Bearer` |
 | `refresh_token` | 否 | 刷新令牌，缺失时令牌过期只能手动重新导入 |
 | `uid` | 否 | 用户 ID，对应请求头 `X-User-Id` |
@@ -125,7 +122,7 @@ python import_accounts.py --path "D:/backup/my_accounts.json"
 
 ### 与 cockpit-tools 并行使用
 
-[cockpit-tools](https://github.com/jlcodes99/cockpit-tools) 的自动签到会在执行时刷新令牌（refresh token 轮换），这会使 `config/token.json` 里的旧令牌立即失效。脚本已内置应对：**每次签到前自动从本机官方客户端 / cockpit-tools 同步最新令牌**（两者都没有时自动跳过，不影响独立使用）。若两边的自动签到都已开启，建议二选一，避免重复签到。
+[cockpit-tools](https://github.com/jlcodes99/cockpit-tools) 的自动签到会在执行时刷新令牌（refresh token 轮换），这会使 `config/token.json` 里的旧令牌立即失效。脚本**不会自动从本机拉取令牌**，若两边同时使用，cockpit 侧刷新令牌后需重新运行 `import_accounts.py` 更新，或建议二选一，避免重复签到。
 
 ## 🚀 使用方法
 
@@ -136,8 +133,6 @@ python main.py
 执行流程：
 
 ```
-从本机 cockpit-tools 同步最新令牌（未安装则跳过）
-  ↓
 随机延迟 0~10 分钟（错峰，可用 WORKBUDDY_JITTER_MAX 环境变量调整）
   ↓
 加载账号配置

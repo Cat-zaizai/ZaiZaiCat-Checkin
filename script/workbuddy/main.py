@@ -34,7 +34,6 @@ sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from api import WorkBuddyAPI
-from import_accounts import sync_accounts
 from notification import send_notification, NotificationSound
 
 # 启动随机延迟上限（秒）：在窗口内随机错开请求，避免与他人撞车；设为 0 关闭
@@ -268,14 +267,6 @@ class WorkBuddyTasks:
 
     def run(self):
         """执行所有账号的签到任务"""
-        # 签到前先从本机 cockpit-tools 同步最新令牌（未安装则跳过），避免双端令牌轮换导致 401
-        sync_stats = sync_accounts(quiet=True)
-        if sync_stats:
-            self.logger.info(
-                f"🔄 已从 cockpit-tools 同步账号: 新增 {sync_stats['added']}，更新 {sync_stats['updated']}"
-            )
-            self._init_accounts()
-
         # 启动随机抖动，错开请求高峰
         if JITTER_MAX_SECONDS > 0:
             delay = random.uniform(0, JITTER_MAX_SECONDS)
