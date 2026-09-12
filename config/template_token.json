@@ -192,5 +192,13 @@
         "domain": ""
       }
     ]
+  },
+  "trae": {
+    "accounts": [
+      {
+        "account_name": "主号",
+        "session": "浏览器 X-Cloudide-Session 的完整值"
+      }
+    ]
   }
 }

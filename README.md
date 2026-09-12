@@ -29,6 +29,8 @@
 | 📝 WPS Office  | `script/wps/main.py` | ✅ 可用 | 支持任务中心和天天领福利双页面任务 |
 | 💰 什么值得买      | `script/smzdm/sign_daily_task/main.py` | ✅ 可用 | 支持每日签到和众测任务         |
 | 🤖 WorkBuddy    | `script/workbuddy/main.py` | ✅ 可用 | 支持每日签到、令牌自动续期与多账号管理 |
+| 🐅 Trae CN       | `script/trae/main.py` | ✅ 可用 | 支持积分计费模式每日签到与多账号管理 |
+| 🚀 Agent Router  | `script/agentrouter/main.py` | ✅ 可用 | 支持 OAuth 登录即签到、余额查询 |
 
 ### 状态说明
 
@@ -60,9 +62,13 @@ WorkBuddy（CodeBuddy）每日签到脚本，接口实现参考 [cockpit-tools](
 - `script/workbuddy/import_accounts.py`：账号导入工具，一键导入官方 WorkBuddy 客户端当前登录账号（自动解密凭据库），也支持从 cockpit-tools 批量导入或指定 JSON 文件导入
 - `script/workbuddy/main.py`：统一入口，多账号签到编排、令牌自动续期与结果推送
 
-支持每日签到、连签奖励、多账号管理、令牌自动续期（access_token 60 天 / refresh_token 90 天，自动轮换续期），签到前自动同步本机官方客户端 / cockpit-tools 的最新令牌。详见 [script/workbuddy/README.md](script/workbuddy/README.md)。
+支持每日签到、连签奖励、多账号管理、令牌自动续期（access_token 60 天 / refresh_token 90 天，自动轮换续期）。详见 [script/workbuddy/README.md](script/workbuddy/README.md)。
 
 ## 📝 更新日志
+
+### 2026-09-12
+- ✨ 新增 Trae CN、Agent Router 自动签到模块，详见各脚本子目录 README
+- 🧹 精简账号配置并移除签到前自动同步逻辑，详见 `script/trae/README.md`、`script/workbuddy/README.md`
 
 ### 2026-09-06
 - ✨ **新增 WorkBuddy(CodeBuddy) 自动签到模块**:
