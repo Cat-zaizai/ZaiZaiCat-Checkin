@@ -71,7 +71,20 @@ pip install requests pycryptodome
 python import_accounts.py
 ```
 
-脚本会自动探测官方客户端凭据库（`%APPDATA%/WorkBuddy/User/globalStorage/state.vscdb`），解密并导入**当前登录账号**，无需抓包。逻辑与 [cockpit-tools](https://github.com/jlcodes99/cockpit-tools) 的本机导入功能对齐（Windows 使用 DPAPI + AES-GCM 解密，macOS 使用 Keychain + AES-CBC）。
+脚本会自动探测官方客户端登录态并导入**当前登录账号**，无需抓包。逻辑与 [cockpit-tools](https://github.com/jlcodes99/cockpit-tools) 的本机导入功能对齐，兼容两代客户端：
+
+| 客户端版本 | 登录态位置 | 读取方式 |
+|-----------|-----------|---------|
+| 5.6+ | `%LOCALAPPDATA%/CodeBuddyExtension/Data/Public/auth/workbuddy-desktop.info` | 明文直接读取；`$wbEncrypted` 加密信封则向官方客户端索取密钥后解密 |
+| 5.5 及更早 | `%APPDATA%/WorkBuddy/User/globalStorage/state.vscdb` | Windows 用 DPAPI + AES-GCM 解密，macOS 用 Keychain + AES-CBC |
+
+> **关于 5.6+ 的加密登录态**：新版客户端把 `accessToken` / `refreshToken` 等字段以 AES-256-GCM 信封（`$wbEncrypted`）存盘，密钥由客户端内置。脚本会以 Node 模式启动官方客户端**现取现用**（与 cockpit-tools 做法一致，密钥不落盘）。若提示取不到密钥，一般是客户端未安装或装在非默认目录，可用环境变量指定程序路径：
+>
+> ```bash
+> set WORKBUDDY_CLIENT_EXE=D:/path/to/WorkBuddy.exe
+> ```
+>
+> ⚠️ 直接打开该文件复制 `accessToken` 是**复制不到的**——你拿到的是密文信封，填进配置只会得到 401。
 
 ### 方式二：从 cockpit-tools 导入
 
@@ -97,6 +110,12 @@ python import_accounts.py --path "C:/Users/你的用户名/AppData/Roaming/cockp
 
 ```bash
 python import_accounts.py --path "D:/backup/my_accounts.json"
+```
+
+新版客户端的登录态目录或 `workbuddy-desktop.info` 文件本身同样可以直接传入：
+
+```bash
+python import_accounts.py --path "%LOCALAPPDATA%/CodeBuddyExtension/Data/Public/auth"
 ```
 
 ### 导入行为说明
