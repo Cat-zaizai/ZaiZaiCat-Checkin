@@ -311,6 +311,8 @@ class TraeWebAPI:
         self.device_id = device_id
         self.timeout = timeout
         self._jwt: Optional[str] = None
+        # 换取 JWT 时由服务端回填的账号身份（UserID），用于识别配置里指向同一账号的重复条目
+        self.user_id: Optional[str] = None
 
     def _fetch_jwt(self) -> Dict[str, Any]:
         """用 X-Cloudide-Session 换取全新 JWT"""
@@ -344,8 +346,20 @@ class TraeWebAPI:
                 'error': f'换取 JWT 失败: {str(msg)[:120]}',
                 'error_type': 'session_invalid',
             }
+        self.user_id = str((body.get('Result') or {}).get('UserID') or '') or None
         self._jwt = token
         return {'success': True, 'jwt': token}
+
+    def get_user_id(self) -> Optional[str]:
+        """
+        换取 JWT 并返回该会话所属账号的 UserID（拿不到时返回 None）
+
+        JWT 会被缓存并供后续请求复用，因此不会产生额外请求；同时可用于识别
+        不同 sessionid 是否指向同一账号（重复配置）。
+        """
+        if not self._jwt:
+            self._fetch_jwt()
+        return self.user_id
 
     def _delegate(self, method: str) -> Dict[str, Any]:
         """构造临时 TraeAPI 并调用指定方法；JWT 失效时换新重试一次"""

@@ -27,7 +27,7 @@ pip install requests pycryptodome
 }
 ```
 
-> 只需 `sessionid` 一个字段（值填浏览器 Cookie 里的 `sessionid`）即可，**不需要再填旧式的 `session`（X-Cloudide-Session）**。脚本每次运行先调 `/cloudide/api/v3/trae/Login` 自动刷新 `X-Cloudide-Session`（与浏览器打开 trae.cn 的续期链路一致），再换 JWT 签到，因此 `session`/`sid_tt`/`uid_tt` 等都不需要配置，约 60 天不用手工更新。`account_name` 用于通知里认出账号；`user_id`/`access_token`/`expires_at`/`device_id` 为可选增强字段（导入去重、桌面令牌回退），没有也不影响签到。
+> 只需 `sessionid` 一个字段（值填浏览器 Cookie 里的 `sessionid`）即可，**不需要再填旧式的 `session`（X-Cloudide-Session）**。脚本每次运行先调 `/cloudide/api/v3/trae/Login` 自动刷新 `X-Cloudide-Session`（与浏览器打开 trae.cn 的续期链路一致），再换 JWT 签到，因此 `session`/`sid_tt`/`uid_tt` 等都不需要配置，约 60 天不用手工更新。`account_name` 用于通知里认出账号（通知会显示为 `名称(#UserID后6位)`，服务端不提供昵称，故以配置名为主、UserID 尾号兜底，便于区分同名条目）；`user_id`/`access_token`/`expires_at`/`device_id` 为可选增强字段（导入去重、桌面令牌回退），没有也不影响签到。
 
 4. **运行**
 

@@ -31,6 +31,8 @@ Trae CN 已切换为积分计费，本脚本每天自动为配置中的每个账
 - 令牌本地过期预检（expires_at），HTTP 连接/5xx 自动重试（会话复用）
 - 网页会话 9074 偶发风控自动换设备重试；领取失败自动复查状态，如实上报
 - 长效 Cookie 自动刷新 session，隔天/隔周签到不因 session 过期失效
+- 重复账号识别：不同 sessionid 指向同一账号（UserID 相同）时报「重复」而非误报「今日已签到」
+- 通知显示名 = 配置 account_name + UserID 尾号（服务端无昵称接口，以配置名为主、尾号兜底）
 - 汇总与推送单列「需更新凭证」账号，便于及时处理
 
 Author: Assistant
@@ -93,6 +95,8 @@ class TraeTasks:
         self.logger = self._setup_logger()
         self._init_accounts()
         self.account_results: List[Dict[str, Any]] = []
+        # 已处理账号的 UserID → 账号名，用于识别指向同一账号的重复配置条目
+        self.seen_user_ids: Dict[str, str] = {}
 
     def _setup_logger(self) -> logging.Logger:
         logger = logging.getLogger(__name__)
@@ -226,6 +230,23 @@ class TraeTasks:
         mode = '桌面令牌（会话失效回退）' if (prefer_desktop and session) else '桌面令牌'
         return TraeAPI(access_token=access_token, device_id=device_id or ''), mode, device_id, missing_reason
 
+    def _display_name(self, name: str, api: Optional[Any],
+                      account_info: Dict[str, Any]) -> str:
+        """
+        组装账号显示名：配置名 + UserID 尾号后缀，便于在通知里区分同名/笼统命名的账号
+
+        服务端只提供 UserID（无昵称接口），故以配置里手写的名字为主、UserID 尾号兜底。
+        拿不到 UserID 时原样返回配置名。
+        """
+        user_id = ''
+        if isinstance(api, TraeWebAPI):
+            user_id = api.get_user_id() or ''
+        if not user_id:
+            user_id = str(account_info.get('user_id') or '')
+        if not user_id:
+            return name
+        return f'{name}(#{user_id[-6:]})'
+
     def process_account(self, account_info: Dict[str, Any]) -> Dict[str, Any]:
         """
         处理单个账号的签到任务
@@ -237,10 +258,6 @@ class TraeTasks:
             Dict[str, Any]: 处理结果
         """
         account_name = account_info.get('account_name') or account_info.get('email') or '未命名账号'
-        self.logger.info(f"\n{'=' * 60}")
-        self.logger.info(f"开始处理账号: {account_name}")
-        self.logger.info(f"{'=' * 60}")
-
         result = {
             'account_name': account_name,
             'success': False,
@@ -249,10 +266,18 @@ class TraeTasks:
             'gained': None,
             'token_error': False,
             'device_missing': False,
+            'duplicate': False,
         }
 
         try:
             api, mode, device_id, missing_reason = self._build_api(account_info)
+            account_name = self._display_name(account_name, api, account_info)
+            result['account_name'] = account_name
+
+            self.logger.info(f"\n{'=' * 60}")
+            self.logger.info(f"开始处理账号: {account_name}")
+            self.logger.info(f"{'=' * 60}")
+
             if api is None:
                 result['message'] = missing_reason
                 result['token_error'] = True
@@ -285,6 +310,21 @@ class TraeTasks:
                     result['message'] = status.get('error', '查询签到状态失败')
                     self.logger.error(f"❌ {account_name} {result['message']}")
                 return result
+
+            # 重复账号识别：不同 sessionid 可能指向同一账号（同一账号的多个登录会话），
+            # 此时后出现的条目必然显示「今日已签到」，明确提示为重复配置而非误报已签
+            user_id = getattr(api, 'user_id', None)
+            if user_id:
+                owner = self.seen_user_ids.get(user_id)
+                if owner:
+                    result['success'] = True
+                    result['duplicate'] = True
+                    result['message'] = (
+                        f'与「{owner}」为同一账号（UserID={user_id}），本条目重复，已跳过签到'
+                    )
+                    self.logger.warning(f"⚠️ {account_name} {result['message']}")
+                    return result
+                self.seen_user_ids[user_id] = account_name
 
             # 功能不可用（服务端 enable=false，如活动未开放）
             if not status.get('enable', True):
@@ -429,34 +469,54 @@ class TraeTasks:
         if not dry_run:
             self._send_notification()
 
+    def _stats(self) -> Dict[str, int]:
+        """汇总各分类计数（重复配置条目单独统计，不计入签到成功/失败）"""
+        total = len(self.account_results)
+        duplicate = sum(1 for r in self.account_results if r.get('duplicate'))
+        already = sum(1 for r in self.account_results if r.get('already_checked'))
+        success = sum(1 for r in self.account_results
+                      if r['success'] and not r.get('duplicate') and not r.get('already_checked'))
+        return {
+            'total': total,
+            'success': success,
+            'already': already,
+            'duplicate': duplicate,
+            'failed': total - success - already - duplicate,
+            'token_failed': sum(1 for r in self.account_results if r.get('token_error')),
+            'device_missing': sum(1 for r in self.account_results if r.get('device_missing')),
+        }
+
     def _print_summary(self):
         """打印执行结果统计"""
         self.logger.info("\n" + "=" * 60)
         self.logger.info("执行结果统计")
         self.logger.info("=" * 60)
 
-        total = len(self.account_results)
-        success = sum(1 for r in self.account_results if r['success'])
-        already = sum(1 for r in self.account_results if r.get('already_checked'))
-        failed = total - success
-        token_failed = sum(1 for r in self.account_results if r.get('token_error'))
-        device_missing = sum(1 for r in self.account_results if r.get('device_missing'))
+        stats = self._stats()
 
-        self.logger.info(f"总账号数: {total}")
-        self.logger.info(f"签到成功: {success - already}")
-        self.logger.info(f"今日已签: {already}")
-        self.logger.info(f"签到失败: {failed}")
-        if token_failed:
-            self.logger.info(f"其中需更新凭证: {token_failed}")
+        self.logger.info(f"总账号数: {stats['total']}")
+        self.logger.info(f"签到成功: {stats['success']}")
+        self.logger.info(f"今日已签: {stats['already']}")
+        self.logger.info(f"签到失败: {stats['failed']}")
+        if stats['duplicate']:
+            self.logger.info(f"其中重复账号: {stats['duplicate']}")
+            for r in self.account_results:
+                if r.get('duplicate'):
+                    self.logger.info(f"  ⚠️ {r['account_name']} {r['message']}")
+        if stats['token_failed']:
+            self.logger.info(f"其中需更新凭证: {stats['token_failed']}")
             for r in self.account_results:
                 if r.get('token_error'):
                     self.logger.info(f"  ⚠️ {r['account_name']} 凭证失效，需重新导入账号/更新 session")
-        if device_missing:
-            self.logger.info(f"其中设备缺失/冲突: {device_missing}")
+        if stats['device_missing']:
+            self.logger.info(f"其中设备缺失/冲突: {stats['device_missing']}")
 
         self.logger.info("\n详细结果:")
         for result in self.account_results:
-            status = "✅ 成功" if result['success'] else "❌ 失败"
+            if result.get('duplicate'):
+                status = "⚠️ 重复"
+            else:
+                status = "✅ 成功" if result['success'] else "❌ 失败"
             self.logger.info(f"  {result['account_name']}: {status} - {result['message']}")
 
         self.logger.info("=" * 60)
@@ -466,26 +526,27 @@ class TraeTasks:
         if not self.account_results:
             return
 
-        total = len(self.account_results)
-        success = sum(1 for r in self.account_results if r['success'])
-        already = sum(1 for r in self.account_results if r.get('already_checked'))
-        failed = total - success
-        token_failed = sum(1 for r in self.account_results if r.get('token_error'))
+        stats = self._stats()
 
         title = "Trae CN签到结果通知"
 
         content_lines = [
-            f"📊 总账号数: {total}",
-            f"✅ 签到成功: {success - already}",
-            f"📅 今日已签: {already}",
-            f"❌ 签到失败: {failed}",
+            f"📊 总账号数: {stats['total']}",
+            f"✅ 签到成功: {stats['success']}",
+            f"📅 今日已签: {stats['already']}",
+            f"❌ 签到失败: {stats['failed']}",
         ]
-        if token_failed:
-            content_lines.append(f"⚠️ 需更新凭证: {token_failed}")
+        if stats['duplicate']:
+            content_lines.append(f"⚠️ 重复账号: {stats['duplicate']}")
+        if stats['token_failed']:
+            content_lines.append(f"⚠️ 需更新凭证: {stats['token_failed']}")
         content_lines += ["", "📋 详细结果:"]
 
         for result in self.account_results:
-            status = "✅" if result['success'] else "❌"
+            if result.get('duplicate'):
+                status = "⚠️"
+            else:
+                status = "✅" if result['success'] else "❌"
             content_lines.append(f"{status} {result['account_name']}: {result['message']}")
             if result.get('gained') is not None:
                 content_lines.append(f"    🎁 奖励积分: {result['gained']}")

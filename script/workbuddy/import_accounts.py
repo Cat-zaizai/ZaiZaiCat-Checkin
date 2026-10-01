@@ -6,11 +6,19 @@ WorkBuddy账号导入工具
 将本机已有的 WorkBuddy 账号批量导入到本项目的 config/token.json 中的 workbuddy 节点。
 
 支持的导入来源：
-1. 官方 WorkBuddy 客户端（自动探测，读取当前登录账号，逻辑对齐 cockpit-tools 原版本机导入）
-2. cockpit-tools 数据目录（批量导入其管理的全部账号）
-3. 指定账号 JSON 文件，或包含账号数组的 JSON 文件
+1. 新版官方客户端登录态文件（自动探测，WorkBuddy 5.6+）
+2. 旧版官方 WorkBuddy 客户端凭据库（自动探测，读取当前登录账号）
+3. cockpit-tools 数据目录（批量导入其管理的全部账号）
+4. 指定账号 JSON 文件、登录态 .info 文件，或包含账号数组的 JSON 文件
 
-官方客户端凭据存储（对齐 cockpit-tools 实现）：
+新版客户端登录态（WorkBuddy 5.6+，优先使用）：
+- 文件：%LOCALAPPDATA%/CodeBuddyExtension/Data/Public/auth/workbuddy-desktop.info
+  （macOS/Linux：~/Library/Application Support、~/.local/share 下的同路径）
+- 明文形态：auth.accessToken / auth.refreshToken 直接是 JWT
+- 加密形态：字段为 {"$wbEncrypted":1,"envelope":"..."} 信封，AES-256-GCM（suite 1 / sym-v1），
+  密钥由客户端内置的 Node 扩展提供，需以 Node 模式启动官方客户端索取（对齐 cockpit-tools）
+
+旧版官方客户端凭据库：
 - 数据库：%APPDATA%/WorkBuddy/User/globalStorage/state.vscdb（macOS/Linux 对应各自目录）
 - 读取 ItemTable 中 secret://{"extensionId":"tencent-cloud.coding-copilot","key":"planning-genie.new.accessTokencn"}
 - Windows：Local State 的 os_crypt.encrypted_key 经 DPAPI 解出 AES 密钥，AES-256-GCM（v10 前缀）
@@ -18,7 +26,7 @@ WorkBuddy账号导入工具
 - token 兼容 "uid+token" 拼接格式
 
 使用示例：
-    python import_accounts.py                      # 官方客户端 + cockpit-tools 自动探测导入
+    python import_accounts.py                      # 自动探测新版/旧版客户端与 cockpit-tools
     python import_accounts.py --list               # 仅预览，不写入配置
     python import_accounts.py --path D:/xxx.json   # 从指定文件导入
     python import_accounts.py --path D:/xxx/dir    # 从指定目录导入
@@ -47,6 +55,24 @@ KEY_FILE_NAME = "secure-account-storage.key"
 # 官方 WorkBuddy 客户端的 Secret Storage 标识（与 cockpit-tools 原版一致）
 OFFICIAL_EXTENSION_ID = 'tencent-cloud.coding-copilot'
 OFFICIAL_SECRET_KEY = 'planning-genie.new.accessTokencn'
+
+# 新版客户端（5.6+）共享登录态文件名与字段加密信封标识
+AUTH_FILE_NAMES = ('workbuddy-desktop.info', 'workbuddy-desktop-ai.info')
+ENC_WRAPPER_KEY = '$wbEncrypted'
+
+# 以 Node 模式启动官方客户端索取字段加密密钥的脚本（对齐 cockpit-tools workbuddy_auth_crypto）
+# 密钥仅经标准输出回传，不做任何落盘；失败统一以退出码 2 表示
+OFFICIAL_KEY_SCRIPT = r"""
+try {
+  const c = require('crypto');
+  const p = JSON.parse(process._linkedBinding('electron_browser_workbuddy_storage').loggerGet());
+  if (p.version !== 1 || typeof p.atRestSecretKey !== 'string') process.exit(2);
+  const b = Buffer.from(p.atRestSecretKey, 'base64');
+  if (b.length !== 32 || b.toString('base64') !== p.atRestSecretKey || b.every(x => x === 0)) process.exit(2);
+  const key = c.createHash('sha256').update(p.atRestSecretKey, 'utf8').digest();
+  process.stdout.write(key.toString('base64'));
+} catch (_) { process.exit(2); }
+"""
 
 try:
     from Crypto.Cipher import AES
@@ -312,6 +338,244 @@ def load_accounts_from_official_client(quiet: bool = False) -> List[Dict[str, An
     return [account] if account else []
 
 
+def find_new_auth_file() -> Optional[Path]:
+    """
+    定位新版客户端（5.6+）共享登录态文件
+
+    已退出登录时客户端会写 <文件>.logged-out 标记，此时视为无登录态。
+
+    Returns:
+        Optional[Path]: workbuddy-desktop.info 路径，未找到返回 None
+    """
+    if sys.platform == 'win32':
+        roots = [os.environ.get('LOCALAPPDATA'), os.environ.get('APPDATA')]
+        dirs = [Path(r) / 'CodeBuddyExtension' / 'Data' / 'Public' / 'auth' for r in roots if r]
+    elif sys.platform == 'darwin':
+        dirs = [Path.home() / 'Library' / 'Application Support'
+                / 'CodeBuddyExtension' / 'Data' / 'Public' / 'auth']
+    else:
+        dirs = [Path.home() / '.local' / 'share'
+                / 'CodeBuddyExtension' / 'Data' / 'Public' / 'auth']
+
+    for directory in dirs:
+        for name in AUTH_FILE_NAMES:
+            auth_file = directory / name
+            if auth_file.is_file() and not Path(f'{auth_file}.logged-out').exists():
+                return auth_file
+    return None
+
+
+def _find_client_executable() -> Optional[Path]:
+    """定位官方 WorkBuddy 客户端可执行文件（用于索取字段加密密钥，可用 WORKBUDDY_CLIENT_EXE 覆盖）"""
+    candidates: List[Path] = []
+    override = os.environ.get('WORKBUDDY_CLIENT_EXE')
+    if override:
+        candidates.append(Path(override))
+
+    if sys.platform == 'win32':
+        for env_key in ('LOCALAPPDATA', 'ProgramFiles', 'ProgramFiles(x86)'):
+            base = os.environ.get(env_key)
+            if base:
+                candidates.append(Path(base) / 'Programs' / 'WorkBuddy' / 'WorkBuddy.exe')
+                candidates.append(Path(base) / 'WorkBuddy' / 'WorkBuddy.exe')
+    elif sys.platform == 'darwin':
+        candidates.append(Path('/Applications/WorkBuddy.app/Contents/MacOS/WorkBuddy'))
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+# 字段加密密钥按进程缓存，避免多账号重复启动客户端
+_official_key_cache: Optional[bytes] = None
+
+
+def load_official_key(quiet: bool = False) -> Optional[bytes]:
+    """
+    向官方客户端索取字段加密密钥（对齐 cockpit-tools：以 Node 模式运行客户端）
+
+    Returns:
+        Optional[bytes]: 32 字节 AES 密钥，获取失败返回 None
+    """
+    global _official_key_cache
+    if _official_key_cache:
+        return _official_key_cache
+
+    executable = _find_client_executable()
+    if not executable:
+        if not quiet:
+            print("⚠️  未找到官方 WorkBuddy 客户端，无法解密新版登录态（可用 WORKBUDDY_CLIENT_EXE 指定程序路径）")
+        return None
+
+    env = os.environ.copy()
+    env['ELECTRON_RUN_AS_NODE'] = '1'
+    env.pop('NODE_OPTIONS', None)
+    creationflags = 0x08000000 if sys.platform == 'win32' else 0
+
+    try:
+        proc = subprocess.run(
+            [str(executable), '-e', OFFICIAL_KEY_SCRIPT],
+            capture_output=True, timeout=20, env=env, creationflags=creationflags,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        if not quiet:
+            print(f"⚠️  调用官方客户端提取密钥失败: {e}")
+        return None
+
+    if proc.returncode != 0:
+        if not quiet:
+            print("⚠️  官方客户端未返回字段加密密钥，可能客户端版本已变更，请更新客户端后重试")
+        return None
+
+    try:
+        key = base64.b64decode(proc.stdout.strip(), validate=True)
+    except Exception as e:
+        if not quiet:
+            print(f"⚠️  密钥格式非法: {e}")
+        return None
+
+    if len(key) != 32:
+        if not quiet:
+            print("⚠️  密钥长度异常，已跳过新版登录态解密")
+        return None
+
+    _official_key_cache = key
+    return key
+
+
+def _key_id(key: bytes) -> str:
+    """密钥标识：哈希前 8 字节的十六进制，与客户端信封里的 keyId 对应"""
+    return hashlib.sha256(key).hexdigest()[:16]
+
+
+def _envelope_aad(key_id: str) -> bytes:
+    """构造信封的附加认证数据（对齐 cockpit-tools OfficialKey::aad）"""
+    aad = b'WB-AAD\x00\x01'
+    for value in (b'WBEV1', b'sym-v1'):
+        aad += len(value).to_bytes(4, 'big') + value
+    aad += (1).to_bytes(4, 'big')
+    aad += len(key_id).to_bytes(4, 'big') + key_id.encode('utf-8')
+    aad += b'\x02\x00\x00'
+    return aad
+
+
+def decrypt_envelope(wrapper: Dict[str, Any], key: bytes) -> str:
+    """
+    解密单个 {"$wbEncrypted":1,"envelope":"..."} 信封
+
+    Args:
+        wrapper (Dict[str, Any]): 信封外壳
+        key (bytes): 32 字节 AES 密钥
+
+    Returns:
+        str: 明文字符串，解密失败抛出异常
+    """
+    envelope = json.loads(base64.b64decode(wrapper['envelope']))
+    if envelope.get('suite') != 1:
+        raise ValueError(f"不支持的加密套件 suite={envelope.get('suite')}")
+
+    key_id = _key_id(key)
+    if envelope.get('keyId') != key_id:
+        raise ValueError('本地密钥与客户端登录态不匹配')
+
+    cipher = AES.new(key, AES.MODE_GCM, nonce=base64.b64decode(envelope['nonce']))
+    cipher.update(_envelope_aad(key_id))
+    plain = cipher.decrypt_and_verify(
+        base64.b64decode(envelope['ciphertext']), base64.b64decode(envelope['authTag']))
+    return plain.decode('utf-8')
+
+
+def _contains_encrypted(node: Any) -> bool:
+    """递归判断登录态 JSON 中是否存在加密信封字段"""
+    if isinstance(node, dict):
+        if node.get(ENC_WRAPPER_KEY) == 1 and 'envelope' in node:
+            return True
+        return any(_contains_encrypted(value) for value in node.values())
+    if isinstance(node, list):
+        return any(_contains_encrypted(value) for value in node)
+    return False
+
+
+def _decrypt_session(node: Any, key: bytes) -> Any:
+    """递归解密登录态 JSON 中的所有信封字段，返回明文结构"""
+    if isinstance(node, dict):
+        if node.get(ENC_WRAPPER_KEY) == 1 and 'envelope' in node:
+            return decrypt_envelope(node, key)
+        return {k: _decrypt_session(v, key) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_decrypt_session(v, key) for v in node]
+    return node
+
+
+def _pick_str(data: Dict[str, Any], *keys: str) -> Optional[str]:
+    """按顺序取第一个非空字符串字段"""
+    for key in keys:
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def load_accounts_from_auth_file(auth_file: Path, quiet: bool = False) -> List[Dict[str, Any]]:
+    """
+    读取新版客户端登录态文件，提取当前登录账号
+
+    Args:
+        auth_file (Path): workbuddy-desktop.info 路径
+        quiet (bool): True 时不输出警告信息
+
+    Returns:
+        List[Dict[str, Any]]: 原始账号数据列表，无可用账号返回空列表
+    """
+    try:
+        session = json.loads(auth_file.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError) as e:
+        if not quiet:
+            print(f"⚠️  读取登录态文件失败: {e}")
+        return []
+    if not isinstance(session, dict):
+        return []
+
+    if _contains_encrypted(session):
+        if not HAS_CRYPTO:
+            _warn_no_crypto()
+            return []
+        key = load_official_key(quiet=quiet)
+        if not key:
+            return []
+        try:
+            session = _decrypt_session(session, key)
+        except Exception as e:
+            if not quiet:
+                print(f"⚠️  登录态解密失败: {e}")
+            return []
+
+    auth = session.get('auth') if isinstance(session.get('auth'), dict) else {}
+    account = session.get('account') if isinstance(session.get('account'), dict) else {}
+
+    access_token = _pick_str(auth, 'accessToken', 'access_token')
+    if not access_token:
+        return []
+
+    uid = _pick_str(account, 'uid', 'id')
+    nickname = _pick_str(account, 'nickname', 'name')
+
+    raw: Dict[str, Any] = {
+        'nickname': nickname or uid or '未命名账号',
+        'email': nickname or uid or 'unknown',
+        'access_token': access_token,
+    }
+    for field, value in (
+        ('refresh_token', _pick_str(auth, 'refreshToken', 'refresh_token')),
+        ('uid', uid),
+        ('domain', _pick_str(auth, 'domain')),
+    ):
+        if value:
+            raw[field] = value
+    return [raw]
+
+
 def find_cockpit_data_dirs() -> List[Path]:
     """
     自动探测本机可能存在的 cockpit-tools 数据目录
@@ -519,6 +783,33 @@ def load_accounts_from_file(file_path: Path) -> List[Dict[str, Any]]:
     return [item for item in data if isinstance(item, dict) and item.get('access_token')]
 
 
+def load_accounts_from_path(source: Path, quiet: bool = False) -> List[Dict[str, Any]]:
+    """
+    按路径形态分派读取账号：目录（cockpit-tools / 登录态目录）、登录态文件、账号 JSON 文件
+
+    Args:
+        source (Path): 目录或文件路径
+        quiet (bool): True 时不输出警告信息
+
+    Returns:
+        List[Dict[str, Any]]: 原始账号数据列表
+    """
+    if source.is_dir():
+        accounts = load_accounts_from_dir(source, quiet=quiet)
+        if accounts:
+            return accounts
+        # 目录里没有 cockpit-tools 账号时，尝试其中的新版登录态文件
+        for name in AUTH_FILE_NAMES:
+            auth_file = source / name
+            if auth_file.is_file():
+                return load_accounts_from_auth_file(auth_file, quiet=quiet)
+        return []
+
+    if source.suffix.lower() == '.info':
+        return load_accounts_from_auth_file(source, quiet=quiet)
+    return load_accounts_from_file(source)
+
+
 def convert_account(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     将 cockpit-tools 账号结构转换为本项目配置结构
@@ -620,8 +911,8 @@ def collect_accounts(quiet: bool = False) -> List[Dict[str, Any]]:
     """
     自动探测本机账号来源并采集账号（已转换、去重）
 
-    来源顺序：cockpit-tools 数据目录（全部账号）→ 官方 WorkBuddy 客户端（当前登录账号）。
-    官方客户端放在最后处理：其令牌来自用户最近一次登录会话（服务端单会话策略下
+    来源顺序：cockpit-tools 数据目录（全部账号）→ 旧版官方客户端凭据库 → 新版官方客户端登录态。
+    官方来源放在最后处理：其令牌来自用户最近一次登录会话（服务端单会话策略下
     旧的 refresh 链已作废），同 uid 时后处理的官方令牌会覆盖 cockpit 侧的失效令牌。
 
     Args:
@@ -643,6 +934,13 @@ def collect_accounts(quiet: bool = False) -> List[Dict[str, Any]]:
     if official:
         log("📂 来源: 官方 WorkBuddy 客户端 (发现 1 个账号)")
         raw_accounts.extend(official)
+
+    auth_file = find_new_auth_file()
+    if auth_file:
+        new_official = load_accounts_from_auth_file(auth_file, quiet=quiet)
+        if new_official:
+            log(f"📂 来源: 新版客户端登录态 (发现 {len(new_official)} 个账号)")
+            raw_accounts.extend(new_official)
 
     accounts: List[Dict[str, Any]] = []
     seen: Dict[str, int] = {}
@@ -678,10 +976,7 @@ def main():
             print(f"❌ 路径不存在: {source}")
             sys.exit(1)
 
-        if source.is_dir():
-            raw_accounts = load_accounts_from_dir(source)
-        else:
-            raw_accounts = load_accounts_from_file(source)
+        raw_accounts = load_accounts_from_path(source)
 
         print(f"📂 来源: {source}")
 
