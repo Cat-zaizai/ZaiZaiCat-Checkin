@@ -228,6 +228,7 @@ class ItsKTasks:
         rewards = ''
 
         days = data.get('prize_daily') or []
+        entry = None
         if data.get('sign_type') == 2 and days:
             # 活动签到模式：按日历判定今天的状态
             today = _today_str()
