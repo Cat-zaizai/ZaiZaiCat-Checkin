@@ -6,7 +6,7 @@ cron: 10 8 * * *
 """
 
 """
-iTSK(软天空 www.itsk.com)自动签到脚本
+iTSK(IT天空 www.itsk.com)自动签到脚本
 
 该脚本用于自动执行iTSK的每日签到任务，包括：
 - 读取账号配置信息（config/token.json 的 itsk 节点）
@@ -46,7 +46,6 @@ BEIJING_TZ = timezone(timedelta(hours=8))
 # 活动签到日历 sign_status 语义
 SIGN_STATUS_SIGNED = (1, 3)     # 1=已签(历史) 3=今日已签
 SIGN_STATUS_MISSED = 2          # 错过，可补签（消耗钻石，不自动补）
-SIGN_STATUS_UPCOMING = 0        # 未开放（未来日期）
 
 
 def _today_str() -> str:
@@ -228,6 +227,7 @@ class ItsKTasks:
         rewards = ''
 
         days = data.get('prize_daily') or []
+        entry = None
         if data.get('sign_type') == 2 and days:
             # 活动签到模式：按日历判定今天的状态
             today = _today_str()

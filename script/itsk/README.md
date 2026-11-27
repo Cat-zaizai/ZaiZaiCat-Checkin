@@ -1,6 +1,6 @@
 # iTSK 自动签到脚本
 
-iTSK（软天空，www.itsk.com）每日签到脚本，支持多账号、账密自动换新令牌、活动签到日历识别。
+iTSK（IT天空，www.itsk.com）每日签到脚本，支持多账号、账密自动换新令牌、活动签到日历识别。
 
 ## ✨ 功能特性
 
@@ -68,9 +68,16 @@ pip install requests
 # 青龙面板任务命令（在 scripts 目录 clone 整个项目时）
 python3 ZaiZaiCat-Checkin/script/itsk/main.py
 
+# 仓库根目录直接运行
+python3 script/itsk/main.py
+
 # 建议 cron（每日 08:10，可自行调整）
 10 8 * * *
 ```
+
+> ⚠️ 订阅拉取注意：本脚本依赖同目录的 `api.py` 与仓库根目录的 `notification.py`（以及 `config/token.json`）。
+> 若用青龙订阅的**白名单**只拉 `main.py`，会因为缺依赖而 `ImportError`；
+> 请把 `itsk/api|notification` 加入白名单，或按项目 README 建议直接 clone 整个项目。
 
 ## 🔍 签到机制说明
 
