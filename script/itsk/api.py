@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-iTSK(软天空) API模块
+iTSK(IT天空) API模块
 
 提供 iTSK(www.itsk.com) 签到相关的API接口封装:
 - 账密登录: POST /username/login,返回 data.access_token(含 Bearer 前缀,15天有效)

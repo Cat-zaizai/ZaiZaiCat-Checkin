@@ -6,7 +6,7 @@ cron: 10 8 * * *
 """
 
 """
-iTSK(软天空 www.itsk.com)自动签到脚本
+iTSK(IT天空 www.itsk.com)自动签到脚本
 
 该脚本用于自动执行iTSK的每日签到任务，包括：
 - 读取账号配置信息（config/token.json 的 itsk 节点）
