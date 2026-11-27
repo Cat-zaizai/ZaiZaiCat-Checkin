@@ -23,14 +23,11 @@ iTSK(IT天空) API模块
 """
 
 import hashlib
-import logging
 import random
 import time
 from typing import Any, Dict, Optional
 
 import requests
-
-logger = logging.getLogger(__name__)
 
 NONCE_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
 
