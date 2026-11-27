@@ -208,5 +208,17 @@
         "github_session": "GitHub 登录后的 user_session 值"
       }
     ]
+  },
+  "itsk": {
+    "accounts": [
+      {
+        "account_name": "主号",
+        "username": "iTSK 用户名或手机号",
+        "password": "iTSK 密码",
+        "access_token": "登录后自动获取并回写，可留空",
+        "uid": "",
+        "user_agent": ""
+      }
+    ]
   }
 }

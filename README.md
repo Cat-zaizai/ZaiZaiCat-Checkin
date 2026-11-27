@@ -31,6 +31,7 @@
 | 🤖 WorkBuddy    | `script/workbuddy/main.py` | ✅ 可用 | 支持每日签到、令牌自动续期与多账号管理 |
 | 🐅 Trae CN       | `script/trae/main.py` | ✅ 可用 | 支持积分计费模式每日签到与多账号管理 |
 | 🚀 Agent Router  | `script/agentrouter/main.py` | ✅ 可用 | 支持 OAuth 登录即签到、余额查询 |
+| 🖥️ iTSK(软天空)  | `script/itsk/main.py` | ✅ 可用 | 支持每日签到与账密自动换新令牌 |
 
 ### 状态说明
 
@@ -64,7 +65,19 @@ WorkBuddy（CodeBuddy）每日签到脚本，接口实现参考 [cockpit-tools](
 
 支持每日签到、连签奖励、多账号管理、令牌自动续期（access_token 60 天 / refresh_token 90 天，自动轮换续期）。详见 [script/workbuddy/README.md](script/workbuddy/README.md)。
 
+## 📝 iTSK 功能说明
+
+iTSK（软天空 www.itsk.com）每日签到脚本：
+
+- `script/itsk/api.py`：接口封装，网关签名、账密登录、签到面板查询、执行签到
+- `script/itsk/main.py`：统一入口，多账号签到编排、账密自动换新令牌与结果推送
+
+支持活动签到/普通签到双模式面板识别、今日已签判重、可补签天数提醒、令牌自动换新（账密登录，15 天有效期）。详见 [script/itsk/README.md](script/itsk/README.md)。
+
 ## 📝 更新日志
+
+### 2026-11-21
+- ✨ 新增 iTSK(软天空) 自动签到模块：支持每日签到、活动签到日历识别、可补签提醒与账密自动换新令牌，详见 `script/itsk/README.md`
 
 ### 2026-09-12
 - ✨ 新增 Trae CN、Agent Router 自动签到模块，详见各脚本子目录 README
